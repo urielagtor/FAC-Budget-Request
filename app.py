@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
-st.set_page_config(page_title="ASOIT Budget Builder", layout="centered")
+st.set_page_config(page_title="ASOIT Budget Builder", layout="wide")
 st.title("ASOIT Budget Builder")
 
 # -----------------------------
@@ -41,18 +41,14 @@ CATEGORY_TREE = {
     ],
 }
 
-INDENT = "   "  # visual indent like your screenshot
+INDENT = "   "
 HEADER_SUFFIX = ":"
 
 
-def build_category_dropdown_items(tree: dict[str, list[str]]) -> tuple[list[str], dict[str, str]]:
-    """
-    Returns:
-      - display_items: list of strings shown in the dropdown (includes headers + indented subs)
-      - display_to_value: mapping from display string to stored value "Main/Sub" (subs only)
-    """
+def build_category_dropdown_items(tree):
     display_items = []
     display_to_value = {}
+
     for main, subs in tree.items():
         header = f"{main}{HEADER_SUFFIX}"
         display_items.append(header)
@@ -60,10 +56,11 @@ def build_category_dropdown_items(tree: dict[str, list[str]]) -> tuple[list[str]
             display = f"{INDENT}{sub}"
             display_items.append(display)
             display_to_value[display] = f"{main}/{sub}"
-        display_items.append("")  # blank spacer line like the screenshot
-    # remove trailing blank spacer if present
+        display_items.append("")  # spacer line
+
     while display_items and display_items[-1] == "":
         display_items.pop()
+
     return display_items, display_to_value
 
 
@@ -111,14 +108,19 @@ if club_errors:
 st.divider()
 
 # -----------------------------
-# What goes where? guide
+# What goes where? guide (COLUMNS ✅)
 # -----------------------------
 st.subheader("What goes where?")
 st.caption("Use this guide when selecting an expense category:")
 
-for main, subs in CATEGORY_TREE.items():
-    st.markdown(f"**{main}{HEADER_SUFFIX}**")
-    st.markdown("\n".join([f"{INDENT}- {s}" for s in subs]))
+main_categories = list(CATEGORY_TREE.keys())
+cols = st.columns(len(main_categories))
+
+for i, main in enumerate(main_categories):
+    with cols[i]:
+        st.markdown(f"### {main}{HEADER_SUFFIX}")
+        for sub in CATEGORY_TREE[main]:
+            st.markdown(f"- {sub}")
 
 st.divider()
 
@@ -138,7 +140,6 @@ if "expenses_df" not in st.session_state:
     )
 
 if "last_valid_category_display" not in st.session_state:
-    # default to first sub-item
     first_valid = next((x for x in DISPLAY_ITEMS if x in DISPLAY_TO_VALUE), None)
     st.session_state.last_valid_category_display = first_valid
 
@@ -150,7 +151,6 @@ st.subheader("Add an expense line item")
 with st.form("add_expense", clear_on_submit=True):
     expense_date = st.date_input("Date (optional)", value=date.today())
 
-    # One dropdown with header + indented subs
     selected_display = st.selectbox(
         "Expense Category *",
         DISPLAY_ITEMS,
@@ -173,31 +173,28 @@ with st.form("add_expense", clear_on_submit=True):
     submitted = st.form_submit_button("Add Line Item")
 
     if submitted:
-        # Validate club info first
         if club_errors:
             st.error("Fix Club Info fields above before adding line items.")
+        elif selected_display not in DISPLAY_TO_VALUE:
+            st.error("Please select a sub-category (the indented items), not a header.")
+        elif not description.strip():
+            st.error("Description is required.")
         else:
-            # Validate category selection (must be a sub-item, not a header/spacer)
-            if selected_display not in DISPLAY_TO_VALUE:
-                st.error("Please select a sub-category (the indented items), not a header.")
-            elif not description.strip():
-                st.error("Description is required.")
-            else:
-                st.session_state.last_valid_category_display = selected_display
+            st.session_state.last_valid_category_display = selected_display
 
-                new_row = {
-                    "Expense Category": DISPLAY_TO_VALUE[selected_display],  # Main/Sub
-                    "Description": description.strip(),
-                    "Qty.": int(qty),
-                    "Amount": float(amount),
-                    "Total Amount": float(total_amount),
-                    "Date": str(expense_date),
-                }
+            new_row = {
+                "Expense Category": DISPLAY_TO_VALUE[selected_display],  # Main/Sub
+                "Description": description.strip(),
+                "Qty.": int(qty),
+                "Amount": float(amount),
+                "Total Amount": float(total_amount),
+                "Date": str(expense_date),
+            }
 
-                st.session_state.expenses_df = pd.concat(
-                    [st.session_state.expenses_df, pd.DataFrame([new_row])],
-                    ignore_index=True,
-                )
+            st.session_state.expenses_df = pd.concat(
+                [st.session_state.expenses_df, pd.DataFrame([new_row])],
+                ignore_index=True,
+            )
 
 # -----------------------------
 # Table + editing
@@ -209,7 +206,6 @@ df = st.session_state.expenses_df.copy()
 if df.empty:
     st.info("No line items yet. Add one above.")
 else:
-    # Ensure numeric types
     for col in ["Qty.", "Amount", "Total Amount"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
@@ -217,17 +213,15 @@ else:
         df,
         use_container_width=True,
         num_rows="dynamic",
-        disabled=["Total Amount"],  # read-only
+        disabled=["Total Amount"],
         key="budget_editor",
     )
 
-    # Recalc totals from any edits to qty/amount
     for col in ["Qty.", "Amount"]:
         edited_df[col] = pd.to_numeric(edited_df[col], errors="coerce").fillna(0)
 
     edited_df["Total Amount"] = edited_df["Qty."] * edited_df["Amount"]
 
-    # Enforce description (warn if any blank)
     blank_desc = edited_df["Description"].fillna("").str.strip() == ""
     if blank_desc.any():
         st.warning("One or more rows have a blank Description. Please fill them in before exporting.")
@@ -237,16 +231,12 @@ else:
     grand_total = float(edited_df["Total Amount"].sum())
     st.metric("Grand Total", f"${grand_total:,.2f}")
 
-    # -----------------------------
-    # CSV Export (includes Club Info columns on each row)
-    # -----------------------------
     export_df = edited_df.copy()
     export_df.insert(0, "Official Club Name", official_club_name.strip())
     export_df.insert(1, "President Email", president_email.strip())
     export_df.insert(2, "Treasurer Email", treasurer_email.strip())
     export_df.insert(3, "Advisor Email", advisor_email.strip())
 
-    # Block export if required fields missing
     can_export = (not club_errors) and (not blank_desc.any())
 
     csv_bytes = export_df.to_csv(index=False).encode("utf-8")
