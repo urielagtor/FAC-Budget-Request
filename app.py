@@ -1,7 +1,6 @@
 import re
 import streamlit as st
 import pandas as pd
-from datetime import date
 
 st.set_page_config(page_title="ASOIT Budget Builder", layout="wide")
 st.title("ASOIT Budget Builder")
@@ -42,7 +41,11 @@ CATEGORY_TREE = {
 }
 
 INDENT = "   "
-HEADER_SUFFIX = ":"
+
+
+def header_style(main: str) -> str:
+    # This is the "fake bold" header style for dropdown display
+    return f"▌ {main.upper()}"
 
 
 def build_category_dropdown_items(tree):
@@ -50,12 +53,14 @@ def build_category_dropdown_items(tree):
     display_to_value = {}
 
     for main, subs in tree.items():
-        header = f"{main}{HEADER_SUFFIX}"
+        header = header_style(main)
         display_items.append(header)
+
         for sub in subs:
             display = f"{INDENT}{sub}"
             display_items.append(display)
             display_to_value[display] = f"{main}/{sub}"
+
         display_items.append("")  # spacer line
 
     while display_items and display_items[-1] == "":
@@ -108,7 +113,7 @@ if club_errors:
 st.divider()
 
 # -----------------------------
-# What goes where? guide (COLUMNS ✅)
+# What goes where? guide (COLUMNS)
 # -----------------------------
 st.subheader("What goes where?")
 st.caption("Use this guide when selecting an expense category:")
@@ -118,25 +123,18 @@ cols = st.columns(len(main_categories))
 
 for i, main in enumerate(main_categories):
     with cols[i]:
-        st.markdown(f"### {main}{HEADER_SUFFIX}")
+        st.markdown(f"### {main}")
         for sub in CATEGORY_TREE[main]:
             st.markdown(f"- {sub}")
 
 st.divider()
 
 # -----------------------------
-# Initialize state for expenses
+# Initialize state
 # -----------------------------
 if "expenses_df" not in st.session_state:
     st.session_state.expenses_df = pd.DataFrame(
-        columns=[
-            "Expense Category",
-            "Description",
-            "Qty.",
-            "Amount",
-            "Total Amount",
-            "Date",
-        ]
+        columns=["Expense Category", "Description", "Qty.", "Amount", "Total Amount"]
     )
 
 if "last_valid_category_display" not in st.session_state:
@@ -149,8 +147,6 @@ if "last_valid_category_display" not in st.session_state:
 st.subheader("Add an expense line item")
 
 with st.form("add_expense", clear_on_submit=True):
-    expense_date = st.date_input("Date (optional)", value=date.today())
-
     selected_display = st.selectbox(
         "Expense Category *",
         DISPLAY_ITEMS,
@@ -176,7 +172,7 @@ with st.form("add_expense", clear_on_submit=True):
         if club_errors:
             st.error("Fix Club Info fields above before adding line items.")
         elif selected_display not in DISPLAY_TO_VALUE:
-            st.error("Please select a sub-category (the indented items), not a header.")
+            st.error("Please select a sub-category (the indented items), not a main header.")
         elif not description.strip():
             st.error("Description is required.")
         else:
@@ -188,7 +184,6 @@ with st.form("add_expense", clear_on_submit=True):
                 "Qty.": int(qty),
                 "Amount": float(amount),
                 "Total Amount": float(total_amount),
-                "Date": str(expense_date),
             }
 
             st.session_state.expenses_df = pd.concat(
@@ -231,6 +226,7 @@ else:
     grand_total = float(edited_df["Total Amount"].sum())
     st.metric("Grand Total", f"${grand_total:,.2f}")
 
+    # Export with club info on every row (self-contained CSV)
     export_df = edited_df.copy()
     export_df.insert(0, "Official Club Name", official_club_name.strip())
     export_df.insert(1, "President Email", president_email.strip())
